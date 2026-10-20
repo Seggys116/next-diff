@@ -120,8 +120,8 @@ function mountButton(onClose: (path: string) => void) {
       :host { all: initial; }
       button {
         /* Sits just above Next.js's own dev-tools button (bottom-left). */
-        position: fixed; left: 18px; bottom: 68px; z-index: 2147483000;
-        display: grid; place-items: center; width: 40px; height: 40px; padding: 0; overflow: hidden;
+        position: fixed; left: 20px; bottom: 68px; z-index: 2147483000;
+        display: grid; place-items: center; width: 36px; height: 36px; padding: 0; overflow: hidden;
         border: 1px solid rgba(0,0,0,.35); border-radius: 50%; cursor: pointer; background: #f43f5e;
         box-shadow: 0 8px 24px -8px rgba(0,0,0,.55);
         transition: transform .3s cubic-bezier(.22,1,.36,1), opacity .25s ease, box-shadow .2s ease;
@@ -134,7 +134,7 @@ function mountButton(onClose: (path: string) => void) {
           </style>
     <button type="button" aria-label="Compare this page with live (Ctrl/Cmd+Shift+D)" title="Compare with live (Ctrl/Cmd+Shift+D)"><canvas></canvas></button>`;
   const button = root.querySelector("button")!;
-  const stopDither = startDither(root.querySelector("canvas")!, { cell: 2, glyph: GLYPH, glyphSize: 29 });
+  const stopDither = startDither(root.querySelector("canvas")!, { cell: 2, glyph: GLYPH, glyphSize: 26 });
 
   let frame: HTMLIFrameElement | null = null;
   let page: ReturnType<typeof holdPage> | null = null;

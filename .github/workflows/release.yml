@@ -60,6 +60,9 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+      - name: Install npm with staged publishing
+        run: npm install -g npm@11.19.1
+
       - name: Stage the release
         working-directory: packages/next
         run: npm stage publish --access public --provenance

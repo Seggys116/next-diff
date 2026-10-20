@@ -12,7 +12,6 @@
     "esModuleInterop": true,
     "allowJs": false,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }

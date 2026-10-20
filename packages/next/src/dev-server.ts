@@ -48,8 +48,10 @@ export function listen(live?: string): Promise<number> {
       }
       Readable.fromWeb(response.body as NodeReadableStream).pipe(res);
     } catch (err) {
+      console.error(err);
       res.statusCode = 500;
-      res.end(err instanceof Error ? err.message : "diff dev server error");
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.end("diff dev server error");
     }
   });
 

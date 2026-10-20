@@ -4,7 +4,7 @@ import https from "node:https";
 import zlib from "node:zlib";
 import type { IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
-import { isBlockedIp, isLocalHost, isRecognizedIp } from "@/lib/url";
+import { isBlockedIp, isRecognizedIp } from "@/lib/url";
 
 // Reuse connections: a fresh TLS handshake per asset is most of the pass-through latency.
 const agents = {
@@ -107,8 +107,6 @@ function once(
         agent: isHttps ? agents.https : agents.http,
         maxHeaderSize: 64 * 1024,
         lookup: pinnedLookup(allowPrivate),
-        // Local dev servers frequently use self-signed certificates.
-        ...(isHttps && isLocalHost(target.hostname) ? { rejectUnauthorized: false } : {}),
       } as http.RequestOptions,
       resolve,
     );

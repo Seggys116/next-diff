@@ -1,6 +1,6 @@
 {
   "name": "@seggy116/next-diff",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Compare your local Next.js site against live without leaving the page. Press a button, get a diff.",
   "license": "MIT",
   "repository": {

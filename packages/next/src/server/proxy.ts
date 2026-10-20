@@ -87,7 +87,7 @@ export async function handleProxy(request: Request): Promise<Response> {
   }
 
   const isDoc = ["iframe", "document", "frame"].includes(dest) || (!dest && (request.headers.get("accept") ?? "").includes("text/html"));
-  const hostOrigin = `${new URL(parent.replace("*", "0")).protocol}//${hostHeader}`;
+  const hostOrigin = `${new URL(parent.replaceAll("*", "0")).protocol}//${hostHeader}`;
   const method = request.method.toUpperCase();
 
   const target = targetFor(requestedPath(request), session.origin);

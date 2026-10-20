@@ -1,0 +1,11 @@
+{
+  "name": "diff-workspace",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter @seggy116/next-diff build",
+    "dev": "pnpm --filter playground dev",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test"
+  },
+  "packageManager": "pnpm@12.4.1"
+}

@@ -1,0 +1,60 @@
+/* Compiled alone and loaded only in the viewer frame, so it never meets the page's CSS. */
+@import "tailwindcss";
+
+@source "../components";
+@source "./";
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  * {
+    border-color: rgb(255 255 255 / 0.1);
+  }
+  html {
+    font-family: var(--font-sans);
+    /* Dark from the very first paint: no white flash on load or while the window is being resized. */
+    background-color: #08080a;
+    color: #f4f4f5;
+    color-scheme: dark;
+  }
+  body {
+    background-color: #08080a;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@keyframes rbd-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.rbd-shimmer {
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.06) 50%, transparent 80%);
+  animation: rbd-shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes rbd-indeterminate {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
+.rbd-indeterminate {
+  animation: rbd-indeterminate 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.rbd-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+.rbd-scroll::-webkit-scrollbar { width: 8px; }
+.rbd-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rbd-shimmer, .rbd-indeterminate { animation: none; }
+}

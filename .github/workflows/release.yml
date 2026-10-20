@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.4.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Require the tag to be on main
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::$GITHUB_REF_NAME points at a commit that is not on main."
+            exit 1
+          fi
+
+      - name: Require the tag to match the package version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::$GITHUB_REF_NAME is not a version tag such as v0.1.0."
+            exit 1
+          fi
+          PKG=$(node -p "require('./packages/next/package.json').version")
+          if [ "$VERSION" != "$PKG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match packages/next version $PKG."
+            exit 1
+          fi
+
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - name: Publish
+        working-directory: packages/next
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

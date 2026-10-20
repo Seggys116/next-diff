@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+
+# local environment and secrets: never committed, never published
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Next writes this when it detects an agent. It is not part of this package.
+AGENTS.md
+
+# editor / OS / logs
+.DS_Store
+*.log
+.idea/
+.vscode/

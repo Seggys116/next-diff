@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "examples/*"
+
+allowBuilds:
+  "@parcel/watcher": false
+  sharp: false
+  unrs-resolver: false
+  esbuild: true

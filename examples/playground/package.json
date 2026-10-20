@@ -1,0 +1,22 @@
+{
+  "name": "playground",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3001",
+    "build": "next build",
+    "live": "node live-server.mjs"
+  },
+  "dependencies": {
+    "@seggy116/next-diff": "workspace:*",
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}

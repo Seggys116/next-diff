@@ -70,6 +70,7 @@ export interface ChangesPanelProps {
   waiting: boolean;
   selectedId: string | null;
   onSelect: (p: Pair) => void;
+  onClear: () => void;
   filter: PanelFilter;
   onFilter: (f: PanelFilter) => void;
   onStep: (dir: 1 | -1) => void;
@@ -78,7 +79,7 @@ export interface ChangesPanelProps {
   onToggleHighlights: () => void;
 }
 
-export function ChangesPanel({ diff, waiting, selectedId, onSelect, filter, onFilter, onStep, onClose, highlightsOn, onToggleHighlights }: ChangesPanelProps) {
+export function ChangesPanel({ diff, waiting, selectedId, onSelect, onClear, filter, onFilter, onStep, onClose, highlightsOn, onToggleHighlights }: ChangesPanelProps) {
   const [query, setQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -120,7 +121,7 @@ export function ChangesPanel({ diff, waiting, selectedId, onSelect, filter, onFi
     <div className="flex h-full min-h-0 w-full flex-col">
       <div className="shrink-0 border-b border-white/[0.06] p-4">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Changes</h2>
+          <h2 className="text-[13px] font-semibold text-zinc-300">Changes</h2>
           <div className="flex items-center gap-0.5">
             <IconButton label="Previous change (K)" onClick={() => onStep(-1)} className="size-7">
               <ChevronUp className="size-4" />
@@ -226,7 +227,7 @@ export function ChangesPanel({ diff, waiting, selectedId, onSelect, filter, onFi
         </label>
       </div>
 
-      <div ref={listRef} className="rbd-scroll min-h-0 flex-1 overflow-y-auto p-2">
+      <div ref={listRef} onClick={(e) => e.target === e.currentTarget && onClear()} className="rbd-scroll min-h-0 flex-1 overflow-y-auto p-2">
         {!diff ? (
           <Skeletons waiting={waiting} />
         ) : visible.length === 0 ? (
@@ -314,7 +315,6 @@ function ChangeItem({ pair, index, selected, onClick, region }: { pair: Pair; in
           selected && "border-white/10 bg-white/[0.06]",
         )}
       >
-        {selected && <motion.span layoutId="sel-bar" className={cn("absolute bottom-2 left-0 top-2 w-0.5 rounded-full", meta.dot)} transition={{ duration: 0.35, ease: EASE }} />}
         <span className={cn("mt-0.5 grid size-5 shrink-0 place-items-center rounded-md", meta.bg, meta.text)}>
           <Icon className="size-3" strokeWidth={2.5} />
         </span>

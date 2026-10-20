@@ -85,7 +85,8 @@ export function Segmented<T extends string>({
       className={cn("border border-white/[0.07]", className)}
       items={options.map((o) => ({
         value: o.id,
-        label: o.label ? <span title={o.hint} className={o.labelClass}>{o.label}</span> : <span title={o.hint} className="sr-only">{o.hint ?? o.id}</span>,
+        label: o.label ? <span title={o.hint} className={o.labelClass}>{o.label}</span> : undefined,
+        title: o.hint,
         icon: o.icon ? <span title={o.hint} className="inline-flex">{o.icon}</span> : undefined,
       }))}
     />

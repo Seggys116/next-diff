@@ -44,6 +44,11 @@ import { usePane, type Pane, type PaneId, type ScrollState } from "./usePane";
 
 const PANEL_W = 372;
 
+// Block ids restart each snapshot, so a selection is re-found by content.
+function pairSig(p: Pair) {
+  return `${p.status}|${p.a?.path ?? ""}|${p.b?.path ?? ""}|${(p.b ?? p.a)?.text?.slice(0, 60) ?? ""}`;
+}
+
 function previewOf(b?: Block) {
   if (!b) return "";
   return b.text || b.alt || (b.raw ? b.raw.split("/").pop()?.split("?")[0] : "") || "";
@@ -62,6 +67,17 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
   const [panelOpen, setPanelOpen] = useState(true);
   const [filter, setFilter] = useState<PanelFilter>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  const selectedSig = useRef<string | null>(null);
+  selectedRef.current = selectedId;
+  const select = useCallback((p: Pair) => {
+    selectedSig.current = pairSig(p);
+    setSelectedId(p.id);
+  }, []);
+  const clearSelection = useCallback(() => {
+    selectedSig.current = null;
+    setSelectedId(null);
+  }, []);
   const [palette, setPalette] = useState(false);
   const [spin, setSpin] = useState(0);
 
@@ -146,7 +162,16 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
     other.load(dest, { silent: true });
   }, []);
 
+  const pick = useCallback((pane: PaneId, id: number, v: number) => {
+    const d = diffRef.current;
+    if (!d || v !== (pane === "a" ? d.aVersion : d.bVersion)) return;
+    const hit = id ? d.pairs.find((p) => isVisibleChange(p) && ((pane === "a" ? p.a : p.b)?.id === id || p.run?.[pane]?.includes(id))) : undefined;
+    if (!hit || hit.id === selectedRef.current) clearSelection();
+    else select(hit);
+  }, []);
+
   const a: Pane = usePane("a", {
+    onPick: pick,
     onUserScroll: (p, s) => {
       cancelAnimationFrame(tween.current);
       syncFrom(p, s);
@@ -154,6 +179,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
     onNavigate: handleNavigate,
   });
   const b: Pane = usePane("b", {
+    onPick: pick,
     onUserScroll: (p, s) => {
       cancelAnimationFrame(tween.current);
       syncFrom(p, s);
@@ -222,30 +248,42 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
     syncFrom("a", a.getScroll());
   }, [diff, sync]);
 
+  useEffect(() => {
+    if (!diff || !selectedSig.current) return;
+    if (selectedRef.current && diff.pairs.some((p) => p.id === selectedRef.current && pairSig(p) === selectedSig.current)) return;
+    const next = diff.pairs.find((p) => isVisibleChange(p) && pairSig(p) === selectedSig.current);
+    setSelectedId(next ? next.id : null);
+    if (!next) selectedSig.current = null;
+  }, [diff]);
+
   const changes = useMemo(() => (diff ? diff.pairs.filter((p) => isVisibleChange(p) && (filter === "all" || p.status === filter)) : []), [diff, filter]);
 
   useEffect(() => {
     if (!diff) return;
-    if (!highlights) {
+    const build = (side: "a" | "b") => {
+      const items: { id: number; ids?: number[]; kind: string; active?: boolean; dashed?: boolean }[] = [];
+      for (const p of diff.pairs) {
+        const active = p.id === selectedId;
+        if (!active && !highlights) continue;
+        if (!isVisibleChange(p)) continue;
+        if (!active && filter !== "all" && p.status !== filter) continue;
+        const blk = side === "a" ? p.a : p.b;
+        if (!blk) continue;
+        const ids = p.run ? p.run[side] : undefined;
+        items.push({ id: blk.id, ids, kind: p.status, active, dashed: blk.kind === "region" });
+        if (items.length >= 250 && !active) break;
+      }
+      return items;
+    };
+    const sa = build("a");
+    const sb = build("b");
+    if (!sa.length && !sb.length) {
       a.post("clearHighlights");
       b.post("clearHighlights");
       return;
     }
-    const build = (side: "a" | "b") => {
-      const items: { id: number; ids?: number[]; kind: string; active?: boolean; dashed?: boolean }[] = [];
-      for (const p of diff.pairs) {
-        if (!isVisibleChange(p)) continue;
-        if (filter !== "all" && p.status !== filter) continue;
-        const blk = side === "a" ? p.a : p.b;
-        if (!blk) continue;
-        const ids = p.run ? p.run[side] : undefined;
-        items.push({ id: blk.id, ids, kind: p.status, active: p.id === selectedId, dashed: blk.kind === "region" });
-        if (items.length >= 250) break;
-      }
-      return items;
-    };
-    a.post("highlights", { v: diff.aVersion, items: build("a") });
-    b.post("highlights", { v: diff.bVersion, items: build("b") });
+    a.post("highlights", { v: diff.aVersion, items: sa });
+    b.post("highlights", { v: diff.bVersion, items: sb });
   }, [diff, highlights, filter, selectedId]);
 
   const tweenScroll = useCallback((toA: number, toB: number) => {
@@ -266,7 +304,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
 
   const focusPair = useCallback(
     (p: Pair) => {
-      setSelectedId(p.id);
+      select(p);
       const A = a.getScroll();
       const B = b.getScroll();
       const place = (blk: Block, vh: number) => Math.max(0, blk.y - (blk.h > vh * 0.5 ? 0.1 : 0.3) * vh);
@@ -277,7 +315,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
       if (yb === null && ya !== null) yb = map ? map.aToB(ya) : ya;
       if (ya !== null && yb !== null) tweenScroll(ya, yb);
     },
-    [getMap, tweenScroll],
+    [getMap, tweenScroll, select],
   );
 
   const step = useCallback(
@@ -292,7 +330,8 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
 
   const load = useCallback((id: PaneId, url: string) => {
     suppress.current[id] = true;
-    setSelectedId(null);
+    clearSelection();
+    scanned.current = false;
     (id === "a" ? a : b).load(url);
   }, []);
 
@@ -335,6 +374,14 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
     b.post("warmup");
   }, []);
 
+  // Load lazy content once up front so scrolling later doesn't keep reshaping the diff.
+  const scanned = useRef(false);
+  useEffect(() => {
+    if (!diff || scanned.current) return;
+    scanned.current = true;
+    scan();
+  }, [diff, scan]);
+
   // Stable identity unless the device really changes, so the panes can skip re-rendering.
   const device = useMemo(
     () =>
@@ -367,7 +414,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
       else if (e.key === "k") step(-1);
       else if (e.key === "h") setHighlights((h) => !h);
       else if (e.key === "p") setPanelOpen((o) => !o);
-      else if (e.key === "Escape") setSelectedId(null);
+      else if (e.key === "Escape") clearSelection();
       else if (e.key >= "1" && e.key <= "4") setView(VIEW_MODES[+e.key - 1].id);
     };
     window.addEventListener("keydown", onKey);
@@ -382,7 +429,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
       { id: "prev", group: "Actions", title: "Previous change", shortcut: "K", icon: <Minus className={icon} />, run: () => step(-1) },
       { id: "hl", group: "Actions", title: highlights ? "Hide highlights" : "Show highlights", shortcut: "H", icon: <Eye className={icon} />, run: () => setHighlights((h) => !h) },
       { id: "panel", group: "Actions", title: panelOpen ? "Hide changes panel" : "Show changes panel", shortcut: "P", icon: <PanelRight className={icon} />, run: () => setPanelOpen((o) => !o) },
-      { id: "swap", group: "Actions", title: "Swap A and B", icon: <Shuffle className={icon} />, run: swap },
+      ...(devtools ? [] : [{ id: "swap", group: "Actions" as const, title: "Swap A and B", icon: <Shuffle className={icon} />, run: swap }]),
       { id: "scan", group: "Actions", title: "Scan pages for lazy-loaded content", detail: "Scrolls both pages top to bottom, then back", icon: <ScanLine className={icon} />, run: scan },
       { id: "reload", group: "Actions", title: "Reload both pages", icon: <RefreshCw className={icon} />, run: () => (reload("a"), reload("b")) },
     );
@@ -410,7 +457,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
       }
     }
     return list;
-  }, [diff, highlights, panelOpen, step, swap, scan, reload, focusPair]);
+  }, [diff, highlights, panelOpen, step, swap, scan, reload, focusPair, devtools]);
 
   const bothReady = a.state.status === "ready" && b.state.status === "ready";
   const stats = diff?.stats;
@@ -449,18 +496,20 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
               readOnly={!!devtools}
               leading={devtools && <EnvTag env={envOf(devtools.environments, a.state.current || a.state.requested)} />}
             />
-            <Tip label="Swap A and B">
-              <motion.button
-                type="button"
-                onClick={swap}
-                aria-label="Swap A and B"
-                animate={{ rotate: spin * 180 }}
-                transition={{ duration: 0.6, ease: EASE }}
-                className="grid size-8 shrink-0 place-items-center rounded-lg text-zinc-500 outline-none transition-colors hover:bg-white/[0.06] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-white/30"
-              >
-                <ArrowLeftRight className="size-4" />
-              </motion.button>
-            </Tip>
+            {!devtools && (
+              <Tip label="Swap A and B">
+                <motion.button
+                  type="button"
+                  onClick={swap}
+                  aria-label="Swap A and B"
+                  animate={{ rotate: spin * 180 }}
+                  transition={{ duration: 0.6, ease: EASE }}
+                  className="grid size-8 shrink-0 place-items-center rounded-lg text-zinc-500 outline-none transition-colors hover:bg-white/[0.06] hover:text-zinc-100 focus-visible:ring-2 focus-visible:ring-white/30"
+                >
+                  <ArrowLeftRight className="size-4" />
+                </motion.button>
+              </Tip>
+            )}
             <UrlField
               id="b"
               state={b.state}
@@ -570,7 +619,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
             >
               {(close) => (
                 <>
-                  <p className="px-2.5 pb-1 pt-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-zinc-500">Scroll sync</p>
+                  <p className="px-2.5 pb-1 pt-1.5 text-[11.5px] font-semibold text-zinc-400">Scroll sync</p>
                   {SYNC_MODES.map((m) => (
                     <MenuItem
                       key={m.id}
@@ -649,7 +698,8 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
                     diff={diff}
                     waiting={!bothReady}
                     selectedId={selectedId}
-                    onSelect={focusPair}
+                    onSelect={(p) => (p.id === selectedId ? clearSelection() : focusPair(p))}
+                    onClear={clearSelection}
                     filter={filter}
                     onFilter={setFilter}
                     onStep={step}

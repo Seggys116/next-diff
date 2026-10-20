@@ -630,8 +630,9 @@
     if (!snap) return;
     lastSnap = performance.now();
     havePainted = true;
-    // Block ids restart every snapshot, so old highlights would point at the wrong nodes.
-    clearHighlights();
+    // Block ids restart every snapshot; keep the boxes on screen until the app resends.
+    hlItems = [];
+    hlFollow = false;
     post("snapshot", snap);
     positionHighlights();
   }
@@ -691,9 +692,16 @@
     }
     hlVersion = version;
     var root = ensureHlRoot();
-    var nodes = root.querySelectorAll("div");
-    for (var i = nodes.length - 1; i >= 0; i--) nodes[i].remove();
+    var pool = {};
+    var spare = [];
+    var existing = root.querySelectorAll("div");
+    for (var i = 0; i < existing.length; i++) {
+      var key = existing[i].getAttribute("data-k");
+      if (key && !pool[key]) pool[key] = existing[i];
+      else spare.push(existing[i]);
+    }
     hlItems = [];
+    var used = [];
     for (var j = 0; j < items.length; j++) {
       var it = items[j];
       var ids = [];
@@ -701,17 +709,26 @@
       for (var q = 0; q < list.length; q++) if (registry[list[q]]) ids.push(list[q]);
       if (!ids.length) continue;
       var colors = HL_COLORS[it.kind] || HL_COLORS.changed;
-      var d = doc.createElement("div");
+      var k2 = it.kind + (it.dashed ? "d" : "s") + ":" + ids.join(",");
+      var d = pool[k2];
+      if (d) pool[k2] = null;
+      else d = spare.pop() || doc.createElement("div");
+      d.setAttribute("data-k", k2);
       d.style.background = it.dashed ? "transparent" : colors[0];
       d.style.border = "1px " + (it.dashed ? "dashed " : "solid ") + colors[1];
       d.style.setProperty("--rbd-glow", colors[1].replace(/,\.85\)/, ",.35)"));
-      if (it.active) d.setAttribute("data-active", "1");
-      root.appendChild(d);
+      if (it.active) {
+        if (!d.hasAttribute("data-active")) d.setAttribute("data-active", "1");
+      } else d.removeAttribute("data-active");
+      if (!d.parentNode) root.appendChild(d);
+      used.push(d);
       var follow = false;
       for (var f = 0; f < ids.length; f++) if (registry[ids[f]].follow) follow = true;
       hlItems.push({ ids: ids, node: d, active: !!it.active, follow: follow });
       if (follow) hlFollow = true;
     }
+    for (var key2 in pool) if (pool[key2] && pool[key2].parentNode) pool[key2].remove();
+    for (var sp = 0; sp < spare.length; sp++) if (used.indexOf(spare[sp]) < 0) spare[sp].remove();
     positionHighlights();
     requestAnimationFrame(function () {
       for (var k = 0; k < hlItems.length; k++) hlItems[k].node.setAttribute("data-on", "1");
@@ -805,6 +822,27 @@
       setTimeout(tick, 110);
     })();
   }
+
+  doc.addEventListener(
+    "click",
+    function (e) {
+      var t = e.target;
+      var best = 0;
+      var bestEl = null;
+      if (t && t.nodeType === 1 && !(hlRoot && hlRoot.contains(t))) {
+        for (var id in registry) {
+          var el = registry[id].el;
+          if (!el || !el.isConnected || !el.contains(t)) continue;
+          if (!bestEl || bestEl.contains(el)) {
+            best = +id;
+            bestEl = el;
+          }
+        }
+      }
+      post("pick", { id: best, v: snapVersion });
+    },
+    true,
+  );
 
   window.addEventListener("message", function (e) {
     var d = e.data;

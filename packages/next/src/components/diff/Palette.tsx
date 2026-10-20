@@ -260,7 +260,7 @@ function PaletteDialog({
                 <div key={section.group} role="presentation" className="mb-1 last:mb-0">
                   <div
                     role="presentation"
-                    className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500"
+                    className="px-2.5 pb-1 pt-2 text-[11px] font-medium text-zinc-500"
                   >
                     {section.group}
                   </div>

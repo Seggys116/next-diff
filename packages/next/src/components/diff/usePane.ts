@@ -17,6 +17,8 @@ export interface PaneError {
   title: string;
   message: string;
   hint?: string;
+  id?: number;
+  v?: number;
 }
 
 export interface PaneState {
@@ -49,12 +51,15 @@ interface ProbeData {
   p?: number;
   message: string;
   hint?: string;
+  id?: number;
+  v?: number;
 }
 
 export interface PaneCallbacks {
   onUserScroll?: (pane: PaneId, s: ScrollState) => void;
   onScroll?: (pane: PaneId, s: ScrollState) => void;
   onNavigate?: (pane: PaneId, url: string) => void;
+  onPick?: (pane: PaneId, id: number, version: number) => void;
 }
 
 // Address, title, and icon from the page are attacker-controlled: http(s) only, length-capped, never inserted as markup.
@@ -187,6 +192,9 @@ export function usePane(pane: PaneId, callbacks: PaneCallbacks) {
           if (data.user) cb.current.onUserScroll?.(pane, scroll.current);
           break;
         }
+        case "pick":
+          cb.current.onPick?.(pane, Number(data.id) || 0, Number(data.v) || 0);
+          break;
         case "warmup":
           setState((s) => ({ ...s, warm: data.state === "done" ? null : (data.p ?? 0) }));
           break;

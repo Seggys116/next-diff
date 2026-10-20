@@ -4,7 +4,7 @@ import { MotionConfig, motion } from "motion/react";
 import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-export type SegmentedItem<T extends string> = { value: T; label?: ReactNode; icon?: ReactNode };
+export type SegmentedItem<T extends string> = { value: T; label?: ReactNode; icon?: ReactNode; title?: string };
 
 export function SegmentedControl<T extends string>({
   items,
@@ -67,6 +67,8 @@ export function SegmentedControl<T extends string>({
               type="button"
               role="radio"
               aria-checked={active}
+              aria-label={it.title}
+              title={it.title}
               tabIndex={active ? 0 : -1}
               onClick={() => onChange(it.value, i)}
               className={cn(

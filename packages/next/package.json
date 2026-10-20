@@ -1,7 +1,21 @@
 {
   "name": "@seggy116/next-diff",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Compare your local Next.js site against live without leaving the page. Press a button, get a diff.",
+  "keywords": [
+    "nextjs",
+    "next",
+    "diff",
+    "visual-diff",
+    "visual-regression",
+    "dev-tools",
+    "devtools",
+    "compare",
+    "staging",
+    "production",
+    "responsive",
+    "screenshot"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",

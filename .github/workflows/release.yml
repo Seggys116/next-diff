@@ -60,8 +60,8 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
-      - name: Publish
+      - name: Stage the release
         working-directory: packages/next
-        run: npm publish --access public --provenance
+        run: npm stage publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_ACCESS_TOKEN }}

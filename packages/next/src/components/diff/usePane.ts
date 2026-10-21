@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PageSnapshot } from "@/lib/diff/types";
+import type { PageHead, PageSnapshot } from "@/lib/diff/types";
 import { StartError, usePaneBackend, type PaneId, type PaneTarget } from "./backend";
 
 export type { PaneId };
@@ -30,6 +30,8 @@ export interface PaneState {
   title: string;
   /** Favicon of the previewed page, as a URL on the real site. Empty until known. */
   icon: string;
+  /** Document head: title, description, canonical, Open Graph, Twitter. Null until the page reports it. */
+  head: PageHead | null;
   httpStatus?: number;
   error?: PaneError;
   snapshot: PageSnapshot | null;
@@ -53,6 +55,7 @@ interface ProbeData {
   hint?: string;
   id?: number;
   v?: number;
+  head?: unknown;
 }
 
 export interface PaneCallbacks {
@@ -63,9 +66,42 @@ export interface PaneCallbacks {
 }
 
 // Address, title, and icon from the page are attacker-controlled: http(s) only, length-capped, never inserted as markup.
-const httpUrl = (v: unknown, fallback = ""): string =>
-  typeof v === "string" && v.length < 2048 && /^https?:\/\//i.test(v) ? v : fallback;
+const httpUrl = (v: unknown, fallback = "", max = 2048): string =>
+  typeof v === "string" && v.length < max && /^https?:\/\//i.test(v) ? v : fallback;
 const cleanText = (v: unknown): string => (typeof v === "string" ? v.slice(0, 300) : "");
+const clipText = (v: unknown, n: number): string =>
+  typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, n) : "";
+
+function cleanHead(raw: unknown): PageHead | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const og = (o.og && typeof o.og === "object" ? o.og : {}) as Record<string, unknown>;
+  const tw = (o.twitter && typeof o.twitter === "object" ? o.twitter : {}) as Record<string, unknown>;
+  return {
+    title: clipText(o.title, 300),
+    description: clipText(o.description, 500),
+    canonical: httpUrl(o.canonical, "", 4096),
+    robots: clipText(o.robots, 200),
+    keywords: clipText(o.keywords, 400),
+    author: clipText(o.author, 200),
+    lang: clipText(o.lang, 32),
+    og: {
+      title: clipText(og.title, 300),
+      description: clipText(og.description, 500),
+      image: httpUrl(og.image, "", 4096),
+      imageAlt: clipText(og.imageAlt, 300),
+      url: httpUrl(og.url, "", 4096),
+      type: clipText(og.type, 64),
+      siteName: clipText(og.siteName, 120),
+    },
+    twitter: {
+      card: clipText(tw.card, 64),
+      title: clipText(tw.title, 300),
+      description: clipText(tw.description, 500),
+      image: httpUrl(tw.image, "", 4096),
+    },
+  };
+}
 
 const initial = (): PaneState => ({
   status: "idle",
@@ -73,6 +109,7 @@ const initial = (): PaneState => ({
   current: "",
   title: "",
   icon: "",
+  head: null,
   snapshot: null,
   loadId: 0,
   warm: null,
@@ -101,7 +138,9 @@ export function usePane(pane: PaneId, callbacks: PaneCallbacks) {
   const load = useCallback(
     async (url: string, opts?: { silent?: boolean }) => {
       const seq = ++loadSeq.current;
-      release();
+      // Keep the previous preview host until the next one exists. Same site reuses it, so its cookies survive the navigation.
+      const previous = target.current;
+      target.current = null;
       token.current = crypto.randomUUID();
       setState((s) => ({
         ...s,
@@ -113,21 +152,24 @@ export function usePane(pane: PaneId, callbacks: PaneCallbacks) {
         error: undefined,
         httpStatus: undefined,
         icon: opts?.silent ? s.icon : "",
+        head: opts?.silent ? s.head : null,
         snapshot: opts?.silent ? s.snapshot : null,
         warm: null,
       }));
       try {
         const started = await backend.start(url, pane, token.current);
         if (seq !== loadSeq.current) {
-          started.release?.();
+          if (!previous || previous.origin !== started.origin) started.release?.();
           return;
         }
+        if (previous && previous.origin !== started.origin) previous.release?.();
         target.current = started;
         setName(started.name);
         setSrc(started.src);
         setState((s) => ({ ...s, status: "loading" }));
       } catch (err) {
         if (seq !== loadSeq.current) return;
+        if (previous && !target.current) target.current = previous;
         setState((s) => ({
           ...s,
           status: "error",
@@ -139,7 +181,7 @@ export function usePane(pane: PaneId, callbacks: PaneCallbacks) {
         }));
       }
     },
-    [pane, release, backend],
+    [pane, backend],
   );
 
   const post = useCallback((type: string, extra?: Record<string, unknown>) => {
@@ -166,25 +208,37 @@ export function usePane(pane: PaneId, callbacks: PaneCallbacks) {
             current: data.url,
             title: data.title,
             icon: data.icon || s.icon,
+            head: cleanHead(data.head) ?? s.head,
             httpStatus: data.status,
           }));
           cb.current.onNavigate?.(pane, data.url);
           break;
         case "nav":
-          setState((s) => ({ ...s, current: data.url, title: data.title || s.title, icon: data.icon || s.icon }));
+          setState((s) => ({
+            ...s,
+            current: data.url,
+            title: data.title || s.title,
+            icon: data.icon || s.icon,
+            head: cleanHead(data.head) ?? s.head,
+          }));
           cb.current.onNavigate?.(pane, data.url);
           break;
-        case "snapshot":
+        case "snapshot": {
+          const snap = { ...(data as object) } as PageSnapshot & { head?: unknown };
+          const head = cleanHead(snap.head);
+          delete snap.head;
           setState((s) => ({
             ...s,
             status: "ready",
-            snapshot: data as unknown as PageSnapshot,
+            snapshot: snap,
+            head: head ?? s.head,
             current: data.url,
             title: data.title || s.title,
             icon: data.icon || s.icon,
             loadId: s.status === "ready" ? s.loadId : s.loadId + 1,
           }));
           break;
+        }
         case "scroll": {
           scroll.current = { y: data.y, h: data.h, vh: data.vh, vw: data.vw };
           listeners.current.forEach((l) => l());

@@ -34,6 +34,7 @@ import { useDiff } from "@/lib/diff/useDiff";
 import { mirrorPath, pathKey } from "@/lib/url";
 import { cn } from "@/lib/utils";
 import { ChangesPanel, STATUS_META, isVisibleChange, kindLabel, type PanelFilter } from "./ChangesPanel";
+import type { HeadSide } from "./HeadCompare";
 import { CUSTOM_DEVICE, DEVICES, SYNC_MODES, VIEW_MODES, windowDevice, type DeviceId, type SyncMode, type ViewMode } from "./devices";
 import { envOf, EnvTag, ExitButton, HandoffContext, SourceTag, useHandoff, type DevtoolsOptions, type Source } from "./devtools";
 import { GitBar } from "./GitBar";
@@ -523,6 +524,10 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
   }, [diff, highlights, panelOpen, step, swap, scan, reload, focusPair, devtools, gitApi, source, toggleSource, git.step]);
 
   const bothReady = a.state.status === "ready" && b.state.status === "ready";
+  const headSide = (id: PaneId): HeadSide => {
+    const pane = id === "a" ? a : b;
+    return { url: pane.state.current || pane.state.requested, frame: pane.src, head: pane.state.head };
+  };
   const stats = diff?.stats;
   const changeCount = diff?.topLevel ?? 0;
 
@@ -767,6 +772,11 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
               showRibbons={highlights}
               onReload={reload}
               travel={travelling ? <TimeTravel key="travel" git={git} /> : undefined}
+              head={
+                deviceId === "window"
+                  ? { a: headSide("a"), b: headSide("b"), liveOrigin: devtools?.environments.find((e) => e.id === "live")?.origin ?? "" }
+                  : undefined
+              }
             />
           </main>
           <AnimatePresence initial={false}>

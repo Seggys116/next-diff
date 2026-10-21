@@ -33,6 +33,7 @@ import type { Pane, PaneId } from "./usePane";
 import { StatusDot } from "./primitives/StatusDot";
 import { Favicon } from "./Favicon";
 import { HEADER_H, Ribbons } from "./Ribbons";
+import { MetaRows, OgRow, type HeadSide } from "./HeadCompare";
 import { useHandoff } from "./devtools";
 import { EASE, Segmented } from "./ui";
 
@@ -40,6 +41,10 @@ const PAD = 20;
 const GUTTER_RIBBONS = 44;
 const GUTTER_PLAIN = 20;
 const BAR_H = 64;
+/** Share card above and metadata below each site, window view and side by side only; they share the height the site leaves. */
+const OG_MIN = 84;
+const META_MIN = 120;
+const HEAD_GAP = 12;
 
 export interface StageProps {
   a: Pane;
@@ -55,6 +60,7 @@ export interface StageProps {
   /** Covers the left pane while it is travelling to another point in history. */
   travel?: React.ReactNode;
   onHeaderClick?: (pane: PaneId) => void;
+  head?: { a: HeadSide; b: HeadSide; liveOrigin: string };
 }
 
 interface Target {
@@ -65,6 +71,8 @@ interface Target {
   ax: number;
   bx: number;
   y: number;
+  og: number;
+  meta: number;
 }
 
 function computeTarget(
@@ -74,6 +82,7 @@ function computeTarget(
   landscape: boolean,
   customW: number,
   ribbons: boolean,
+  head: boolean,
 ): Target {
   const side = mode === "side";
   const cols = side ? 2 : 1;
@@ -81,7 +90,10 @@ function computeTarget(
   const availW = Math.max(120, (size.w - PAD * 2 - gutter) / cols);
   const header = side ? HEADER_H : 0;
   const bottom = side ? 0 : BAR_H;
-  const availH = Math.max(160, size.h - PAD * 2 - header - bottom);
+  // The site is sized with the smallest card and table around it, then they grow into whatever height remains.
+  const above = side && head ? OG_MIN + HEAD_GAP : 0;
+  const below = side && head ? META_MIN + HEAD_GAP : 0;
+  const availH = Math.max(160, size.h - PAD * 2 - header - bottom - above - below);
 
   let dw = device.id === "custom" ? customW : device.w;
   let dhFixed: number | null = device.h === "fill" ? null : device.h;
@@ -104,9 +116,15 @@ function computeTarget(
   const colLeft = PAD + (availW - cw) / 2;
   const ax = colLeft;
   const bx = side ? PAD + availW + gutter + (availW - cw) / 2 : colLeft;
+  if (side && head) {
+    const room = Math.max(OG_MIN + META_MIN, size.h - PAD * 2 - header - ch - HEAD_GAP * 2);
+    const ogMax = Math.round((cw - 18) / 1.91 + 96);
+    const og = Math.max(OG_MIN, Math.min(Math.round(room / 2), ogMax));
+    return { s, dw, dh, bz, ax, bx, y: PAD + og + HEAD_GAP, og, meta: room - og };
+  }
   const totalH = header + ch;
   const y = PAD + Math.max(0, (size.h - PAD * 2 - bottom - totalH) / 2);
-  return { s, dw, dh, bz, ax, bx, y };
+  return { s, dw, dh, bz, ax, bx, y, og: 0, meta: 0 };
 }
 
 export function Stage(props: StageProps) {
@@ -148,12 +166,14 @@ function StageInner(
     diff,
     selected,
     showRibbons,
+    head,
     host,
     size,
   } = props;
+  const withHead = !!head && mode === "side";
 
   const [first] = useState(() =>
-    computeTarget(size, mode, device, landscape, customW, showRibbons),
+    computeTarget(size, mode, device, landscape, customW, showRibbons, withHead),
   );
   const overlayAtStart = mode !== "side";
   const s = useMotionValue(first.s);
@@ -163,6 +183,8 @@ function StageInner(
   const ax = useMotionValue(first.ax);
   const bx = useMotionValue(first.bx);
   const y = useMotionValue(first.y);
+  const ogH = useMotionValue(first.og);
+  const metaH = useMotionValue(first.meta);
   const headerOpacity = useMotionValue(overlayAtStart ? 0 : 1);
   const bClip = useMotionValue(mode === "slider" ? 1 : 0);
   const bOpacity = useMotionValue(1);
@@ -171,12 +193,14 @@ function StageInner(
   const pct = useMotionValue(50);
   const [fade, setFade] = useState(50);
   const [interact, setInteract] = useState<"a" | "b">("b");
-  const lastKey = useRef(`${mode}|${device.id}|${landscape}|${showRibbons}`);
+  const lastKey = useRef(`${mode}|${device.id}|${landscape}|${showRibbons}|${withHead}`);
   const firstRun = useRef(true);
+  const gliding = useRef<{ stop: () => void }[]>([]);
+  const glideAt = useRef(-Infinity);
 
   const target = useMemo(
-    () => computeTarget(size, mode, device, landscape, customW, showRibbons),
-    [size, mode, device, landscape, customW, showRibbons],
+    () => computeTarget(size, mode, device, landscape, customW, showRibbons, withHead),
+    [size, mode, device, landscape, customW, showRibbons, withHead],
   );
 
   // Tell the page that is shrinking into the viewer exactly where its slot is.
@@ -200,13 +224,22 @@ function StageInner(
 
   // Animate between layouts when the device / mode changes; follow resizes instantly.
   useEffect(() => {
-    const key = `${mode}|${device.id}|${landscape}|${showRibbons}`;
+    for (const run of gliding.current) run.stop();
+    gliding.current = [];
+    const key = `${mode}|${device.id}|${landscape}|${showRibbons}|${withHead}`;
     const changed = key !== lastKey.current;
     lastKey.current = key;
-    const glide = changed && !firstRun.current;
+    const now = performance.now();
+    if (changed && !firstRun.current) glideAt.current = now;
+    // The frame is measured, so its size lands just after a device change; a resize right behind one belongs to it.
+    const glide = !firstRun.current && now - glideAt.current < 400;
     firstRun.current = false;
+    const track = <T extends { stop: () => void }>(run: T): T => {
+      gliding.current.push(run);
+      return run;
+    };
     const apply = (mv: MotionValue<number>, v: number) =>
-      glide ? animate(mv, v, { duration: 0.7, ease: EASE }) : mv.set(v);
+      glide ? track(animate(mv, v, { duration: 0.7, ease: EASE })) : mv.set(v);
     apply(s, target.s);
     apply(dw, target.dw);
     apply(dh, target.dh);
@@ -214,15 +247,19 @@ function StageInner(
     apply(ax, target.ax);
     apply(bx, target.bx);
     apply(y, target.y);
+    if (withHead) {
+      apply(ogH, target.og);
+      apply(metaH, target.meta);
+    }
     const overlay = mode !== "side";
     const to = (mv: MotionValue<number>, v: number, d: number) =>
-      glide ? animate(mv, v, { duration: d, ease: EASE }) : mv.set(v);
+      glide ? track(animate(mv, v, { duration: d, ease: EASE })) : mv.set(v);
     to(headerOpacity, overlay ? 0 : 1, 0.45);
     to(barOpacity, overlay ? 1 : 0, 0.5);
     to(bOpacity, mode === "fade" ? fade / 100 : 1, 0.5);
     to(bClip, mode === "slider" ? 1 : 0, 0.6);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, mode, device.id, landscape, showRibbons]);
+  }, [target, mode, device.id, landscape, showRibbons, withHead]);
 
   useEffect(() => {
     if (mode === "fade") bOpacity.set(fade / 100);
@@ -243,6 +280,11 @@ function StageInner(
     [dh, s] as MotionValue<number>[],
     ([d, sc]: number[]) => d * sc,
   );
+
+  const headW = useTransform([ax, bx, cw] as MotionValue<number>[], ([l, r, w]: number[]) => r + w - l);
+  const ogY = useTransform([y, ogH] as MotionValue<number>[], ([yy, h]: number[]) => yy - h - HEAD_GAP);
+  const metaY = useTransform([y, ch] as MotionValue<number>[], ([yy, c]: number[]) => yy + HEADER_H + c + HEAD_GAP);
+  const headGutter = showRibbons ? GUTTER_RIBBONS : GUTTER_PLAIN;
 
   const sliderLeft = useTransform(
     [ax, bz, screenW, pct] as MotionValue<number>[],
@@ -306,6 +348,35 @@ function StageInner(
           size={size}
         />
       )}
+
+      <AnimatePresence>
+        {withHead && head && (
+          <motion.div
+            key="og"
+            className="absolute left-0 top-0 z-[3]"
+            style={{ x: ax, y: ogY, width: headW, height: ogH, pointerEvents: "none" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: handoff.entered ? 1 : 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.25 } }}
+            transition={{ duration: 0.6, ease: EASE, delay: 0.4 }}
+          >
+            <OgRow a={head.a} b={head.b} gutter={headGutter} liveOrigin={head.liveOrigin} />
+          </motion.div>
+        )}
+        {withHead && head && (
+          <motion.div
+            key="meta"
+            className="absolute left-0 top-0 z-[3]"
+            style={{ x: ax, y: metaY, width: headW, height: metaH }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: handoff.entered ? 1 : 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.25 } }}
+            transition={{ duration: 0.6, ease: EASE, delay: 0.5 }}
+          >
+            <MetaRows a={head.a} b={head.b} gutter={headGutter} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <PaneFrame
         id="a"

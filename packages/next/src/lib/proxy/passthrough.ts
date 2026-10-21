@@ -1,7 +1,7 @@
 import type { UpstreamResponse } from "./upstream";
 
 export const DROP_RESPONSE = new Set([
-  "connection", "keep-alive", "transfer-encoding", "set-cookie",
+  "connection", "keep-alive", "transfer-encoding", "set-cookie", // rewritten onto the preview host, not copied raw
   "content-security-policy", "content-security-policy-report-only",
   "x-frame-options", "strict-transport-security",
   "cross-origin-opener-policy", "cross-origin-embedder-policy", "cross-origin-resource-policy",
@@ -17,6 +17,36 @@ export const DROP_RESPONSE = new Set([
 export const DROP_PREFIXES = ["x-middleware-", "x-nextjs-", "x-invoke-", "x-matched-", "x-forwarded-", "x-vercel-", "x-now-"];
 
 export const FORWARD_REQUEST = ["user-agent", "accept", "accept-language", "range", "content-type", "if-range"];
+
+const MAX_SET_COOKIE = 4096;
+
+/** A live Set-Cookie made storable on the preview host: no Domain, no Secure unless __Host-/__Secure-, SameSite Lax or Strict. */
+export function rewriteSetCookie(line: string): string | null {
+  if (line.length > MAX_SET_COOKIE || /[\r\n]/.test(line)) return null;
+  const parts = line.split(";").map((part) => part.trim()).filter(Boolean);
+  const pair = parts[0];
+  if (!pair) return null;
+  const eq = pair.indexOf("=");
+  if (eq < 1) return null;
+  const name = pair.slice(0, eq).trim();
+  if (!/^[\w!#$%&'*+\-.^`|~]+$/.test(name)) return null;
+
+  const kept = [pair];
+  let sameSite = "";
+  for (const attr of parts.slice(1)) {
+    const lower = attr.toLowerCase();
+    if (lower === "secure" || lower === "partitioned" || lower.startsWith("domain=")) continue;
+    if (lower.startsWith("samesite=")) {
+      sameSite = lower.slice("samesite=".length).trim();
+      continue;
+    }
+    kept.push(attr);
+  }
+  if (name.startsWith("__Host-") || name.startsWith("__Secure-")) kept.push("Secure");
+  if (sameSite === "strict") kept.push("SameSite=Strict");
+  else kept.push("SameSite=Lax");
+  return kept.join("; ");
+}
 
 export const TEXTUAL =
   /^(text\/(css|javascript|plain|xml|csv)|application\/(javascript|x-javascript|ecmascript|json|xml|manifest\+json|[\w.-]+\+json|[\w.-]+\+xml)|image\/svg\+xml)/i;

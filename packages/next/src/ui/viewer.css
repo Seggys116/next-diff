@@ -13,6 +13,10 @@
   * {
     border-color: rgb(255 255 255 / 0.1);
   }
+  /* The viewer is dark-only; without this, an unpinned page inside flips between light and dark. */
+  iframe {
+    color-scheme: light dark;
+  }
   html {
     font-family: var(--font-sans);
     /* Dark from the very first paint: no white flash on load or while the window is being resized. */

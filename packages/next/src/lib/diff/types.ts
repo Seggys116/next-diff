@@ -52,6 +52,32 @@ export interface Block {
   bg?: number;
 }
 
+/** Head tags the previewed page declares: document metadata and the social card. */
+export interface PageHead {
+  title: string;
+  description: string;
+  canonical: string;
+  robots: string;
+  keywords: string;
+  author: string;
+  lang: string;
+  og: {
+    title: string;
+    description: string;
+    image: string;
+    imageAlt: string;
+    url: string;
+    type: string;
+    siteName: string;
+  };
+  twitter: {
+    card: string;
+    title: string;
+    description: string;
+    image: string;
+  };
+}
+
 export interface PageSnapshot {
   v: number;
   url: string;

@@ -59,6 +59,20 @@ function randomLabel() {
   return LABEL_PREFIX + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** The preview host for this pane and site, reused so its cookies and storage survive navigations. */
+export function openSession(origin: string, pane: string, token: string): ProxySession {
+  sweep();
+  const now = Date.now();
+  for (const s of store.values()) {
+    if (s.pane === pane && s.origin === origin && !expired(s, now)) {
+      s.token = token;
+      s.used = now;
+      return s;
+    }
+  }
+  return createSession(origin, pane, token);
+}
+
 export function createSession(origin: string, pane: string, token: string): ProxySession {
   sweep();
   const label = randomLabel();

@@ -1,4 +1,4 @@
-import { createSession, releaseSession } from "@/lib/proxy/sessions";
+import { openSession, releaseSession } from "@/lib/proxy/sessions";
 import { PREFIX } from "./prefix";
 import { asset } from "./server/assets";
 import { uiFile } from "./server/paths";
@@ -80,7 +80,7 @@ async function session(request: Request, cfg: Resolved): Promise<Response> {
   const token = String(payload.token ?? "").slice(0, 64);
   if (!token) return json({ error: "Missing token" }, 400);
 
-  const created = createSession(url.origin, payload.pane === "b" ? "b" : "a", token);
+  const created = openSession(url.origin, payload.pane === "b" ? "b" : "a", token);
   rememberParent(created.label, request.headers.get("origin") ?? new URL(request.url).origin);
   return json({ label: created.label, path: url.pathname + url.search + url.hash });
 }

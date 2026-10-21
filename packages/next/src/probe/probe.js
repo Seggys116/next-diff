@@ -116,8 +116,58 @@
     }
   }
 
+  function metaContent(key, max) {
+    var el = doc.querySelector('meta[property="' + key + '" i], meta[name="' + key + '" i]');
+    return el ? clip(norm(el.getAttribute("content")), max || 500) : "";
+  }
+
+  /** Resolve a head URL onto the real site. The preview host is not where the asset lives. */
+  function absOnSite(href) {
+    if (!href) return "";
+    try {
+      var u = new URL(href, location.href);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+      if (u.origin === location.origin) return C.target + u.pathname + u.search + u.hash;
+      return u.href;
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function pageHead() {
+    var canon = "";
+    try {
+      var link = doc.querySelector('link[rel~="canonical" i]');
+      if (link) canon = absOnSite(link.getAttribute("href"));
+    } catch (e) {}
+    return {
+      title: clip(norm(doc.title), 300),
+      description: metaContent("description"),
+      canonical: clip(canon, 2000),
+      robots: clip(metaContent("robots"), 200),
+      keywords: clip(metaContent("keywords"), 400),
+      author: clip(metaContent("author"), 200),
+      lang: clip(norm(doc.documentElement ? doc.documentElement.lang : ""), 32),
+      og: {
+        title: clip(metaContent("og:title"), 300),
+        description: metaContent("og:description"),
+        image: absOnSite(metaContent("og:image", 2000)) || absOnSite(metaContent("og:image:secure_url", 2000)),
+        imageAlt: clip(metaContent("og:image:alt"), 300),
+        url: absOnSite(metaContent("og:url", 2000)),
+        type: clip(metaContent("og:type"), 64),
+        siteName: clip(metaContent("og:site_name"), 120),
+      },
+      twitter: {
+        card: clip(metaContent("twitter:card"), 64),
+        title: clip(metaContent("twitter:title"), 300),
+        description: metaContent("twitter:description"),
+        image: absOnSite(metaContent("twitter:image", 2000)) || absOnSite(metaContent("twitter:image:src", 2000)),
+      },
+    };
+  }
+
   function announceNav() {
-    post("nav", { url: realUrl(), title: doc.title || "", icon: iconUrl() });
+    post("nav", { url: realUrl(), title: doc.title || "", icon: iconUrl(), head: pageHead() });
   }
   try {
     ["pushState", "replaceState"].forEach(function (fn) {
@@ -601,6 +651,7 @@
       url: realUrl(),
       title: doc.title || "",
       icon: iconUrl(),
+      head: pageHead(),
       lang: doc.documentElement.lang || "",
       docH: docHeight(),
       vw: window.innerWidth,
@@ -878,6 +929,7 @@
       title: doc.title || "",
       icon: iconUrl(),
       status: C.status,
+      head: pageHead(),
     });
     post("scroll", Object.assign(metrics(), { user: false }));
   }

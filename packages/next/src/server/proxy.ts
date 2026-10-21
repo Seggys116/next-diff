@@ -1,5 +1,5 @@
 import { readLimited } from "@/lib/proxy/body";
-import { BAD_GATEWAY, FORWARD_REQUEST, filterResponseHeaders, TEXTUAL, targetFor, wire } from "@/lib/proxy/passthrough";
+import { BAD_GATEWAY, FORWARD_REQUEST, filterResponseHeaders, rewriteSetCookie, TEXTUAL, targetFor, wire } from "@/lib/proxy/passthrough";
 import { decodeText, errorPage, injectProbe, rewriteHtmlOrigins, rewriteOrigins, sanitizeHtml } from "@/lib/proxy/rewrite";
 import { adoptOrigin, getSession, type ProxySession } from "@/lib/proxy/sessions";
 import { readBody, toWebStream, upstreamRequest, type UpstreamResponse } from "@/lib/proxy/upstream";
@@ -67,10 +67,25 @@ function requestHeaders(request: Request, session: ProxySession, hasBody: boolea
     const v = request.headers.get(name);
     if (v) out[name] = v;
   }
+  // The preview host only holds cookies the preview itself stored, never the live site's own.
+  const cookie = request.headers.get("cookie");
+  if (cookie && cookie.length <= 8192 && !/[\r\n]/.test(cookie)) out["cookie"] = cookie;
   out["accept-encoding"] = "identity";
   out["referer"] = session.origin + "/";
   if (hasBody || request.headers.get("origin")) out["origin"] = session.origin;
   return out;
+}
+
+function applySetCookies(h: Headers, up: UpstreamResponse) {
+  const lines = up.cookies ?? (Array.isArray(up.headers["set-cookie"]) ? up.headers["set-cookie"] : []);
+  let n = 0;
+  for (const line of lines) {
+    if (n >= 40) break;
+    const rewritten = rewriteSetCookie(line);
+    if (!rewritten) continue;
+    h.append("set-cookie", rewritten);
+    n++;
+  }
 }
 
 export async function handleProxy(request: Request): Promise<Response> {
@@ -159,13 +174,18 @@ async function serve(
         adoptOrigin(session, final.origin);
       }
       const h = baseHeaders(parent);
+      applySetCookies(h, up);
       h.set("location", `${hostOrigin}${final.pathname}${final.search}`);
       return new Response(null, { status: 302, headers: h });
     }
   }
 
   const contentType = String(up.headers["content-type"] ?? "");
-  const headers = (keepEncoding: boolean) => baseHeaders(parent, filterResponseHeaders(up, keepEncoding));
+  const headers = (keepEncoding: boolean) => {
+    const h = baseHeaders(parent, filterResponseHeaders(up, keepEncoding));
+    applySetCookies(h, up);
+    return h;
+  };
 
   if (method === "HEAD" || up.status === 204 || up.status === 304) {
     up.stream.resume();

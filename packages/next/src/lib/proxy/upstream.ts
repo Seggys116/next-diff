@@ -17,24 +17,32 @@ export interface UpstreamResponse {
   headers: http.IncomingHttpHeaders;
   url: string;
   stream: Readable;
+  /** Set-Cookie lines from this response and the redirects that led to it, for the final host. */
+  cookies?: string[];
 }
 
 // Cookies set mid-redirect live only for this request, and go back only to the host that set them.
-type Jar = Map<string, { host: string; value: string }>;
+type JarEntry = { host: string; value: string; line: string };
+type Jar = Map<string, JarEntry>;
 
-function collectCookies(jar: Jar, res: IncomingMessage, from: URL) {
+function collectCookies(jar: Jar, res: IncomingMessage, from: URL, dropped: JarEntry[]) {
   const raw = res.headers["set-cookie"];
   if (!raw) return;
   const host = from.hostname.toLowerCase();
   for (const line of raw) {
+    if (line.length > 4096 || /[\r\n]/.test(line)) continue;
     const pair = line.split(";")[0];
     const eq = pair.indexOf("=");
     if (eq < 1) continue;
     const name = pair.slice(0, eq).trim();
     const value = pair.slice(eq + 1).trim();
     const key = `${host}\u0000${name}`;
-    if (/expires=.*1970|max-age=0/i.test(line)) jar.delete(key);
-    else if (jar.size < 64) jar.set(key, { host, value });
+    if (/expires=.*1970|max-age=0/i.test(line)) {
+      jar.delete(key);
+      dropped.push({ host, value, line });
+    } else if (jar.size < 64) {
+      jar.set(key, { host, value, line });
+    }
   }
 }
 
@@ -43,6 +51,22 @@ function cookieHeader(jar: Jar, to: URL): string | undefined {
   const pairs: string[] = [];
   for (const [key, c] of jar) if (c.host === host) pairs.push(`${key.slice(host.length + 1)}=${c.value}`);
   return pairs.length ? pairs.join("; ") : undefined;
+}
+
+function mergeCookieHeader(base: string | undefined, extra: string | undefined): string | undefined {
+  const map = new Map<string, string>();
+  const add = (header: string | undefined) => {
+    if (!header) return;
+    for (const part of header.split(";")) {
+      const pair = part.trim();
+      const eq = pair.indexOf("=");
+      if (eq < 1) continue;
+      map.set(pair.slice(0, eq).trim(), pair);
+    }
+  };
+  add(base);
+  add(extra);
+  return map.size ? [...map.values()].join("; ") : undefined;
 }
 
 export interface UpstreamOptions {
@@ -122,10 +146,14 @@ export async function upstreamRequest(url: string, opts: UpstreamOptions): Promi
   let method = opts.method;
   let body = opts.body;
   const jar: Jar = new Map();
+  const dropped: JarEntry[] = [];
+  const originalHost = current.hostname.toLowerCase();
 
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     const headers: Record<string, string> = { ...opts.headers, host: current.host };
-    const cookie = cookieHeader(jar, current);
+    // The browser's cookies belong to the site we were asked for, not to whatever a redirect points at.
+    if (current.hostname.toLowerCase() !== originalHost) delete headers["cookie"];
+    const cookie = mergeCookieHeader(headers["cookie"], cookieHeader(jar, current));
     if (cookie) headers["cookie"] = cookie;
     else delete headers["cookie"];
     if (body && body.length) headers["content-length"] = String(body.length);
@@ -134,7 +162,7 @@ export async function upstreamRequest(url: string, opts: UpstreamOptions): Promi
     const res = await once(current, method, headers, body, opts.timeoutMs ?? 25_000, opts.allowPrivate === true);
     const status = res.statusCode ?? 502;
     const location = res.headers.location;
-    if (opts.followRedirects) collectCookies(jar, res, current);
+    if (opts.followRedirects) collectCookies(jar, res, current, dropped);
 
     if (opts.followRedirects && status >= 300 && status < 400 && location) {
       res.resume();
@@ -145,7 +173,19 @@ export async function upstreamRequest(url: string, opts: UpstreamOptions): Promi
       }
       continue;
     }
-    return { status, headers: res.headers, url: current.toString(), stream: res };
+    const host = current.hostname.toLowerCase();
+    const kept = new Set<string>();
+    const cookies: string[] = [];
+    for (const entry of jar.values()) {
+      if (entry.host !== host) continue;
+      kept.add(entry.line.split(";")[0]?.split("=")[0]?.trim() ?? "");
+      cookies.push(entry.line);
+    }
+    for (const entry of dropped) {
+      const name = entry.line.split(";")[0]?.split("=")[0]?.trim() ?? "";
+      if (entry.host === host && name && !kept.has(name)) cookies.push(entry.line);
+    }
+    return { status, headers: res.headers, url: current.toString(), stream: res, cookies };
   }
   throw new Error("Too many redirects");
 }

@@ -22,6 +22,7 @@ import {
   SlidersHorizontal,
   SquareSplitHorizontal,
   Columns2,
+  GitBranch,
   Minus,
   Plus,
   ChevronsLeftRight,
@@ -34,12 +35,15 @@ import { mirrorPath, pathKey } from "@/lib/url";
 import { cn } from "@/lib/utils";
 import { ChangesPanel, STATUS_META, isVisibleChange, kindLabel, type PanelFilter } from "./ChangesPanel";
 import { CUSTOM_DEVICE, DEVICES, SYNC_MODES, VIEW_MODES, windowDevice, type DeviceId, type SyncMode, type ViewMode } from "./devices";
-import { envOf, EnvTag, ExitButton, HandoffContext, useHandoff, type DevtoolsOptions } from "./devtools";
+import { envOf, EnvTag, ExitButton, HandoffContext, SourceTag, useHandoff, type DevtoolsOptions, type Source } from "./devtools";
+import { GitBar } from "./GitBar";
 import { Logo } from "./Logo";
 import { Palette, type PaletteItem } from "./Palette";
 import { Stage } from "./Stage";
+import { TimeTravel } from "./TimeTravel";
 import { CountUp, EASE, IconButton, Kbd, Menu, MenuItem, Segmented, Tip } from "./ui";
 import { UrlField } from "./UrlField";
+import { useGit } from "./useGit";
 import { usePane, type Pane, type PaneId, type ScrollState } from "./usePane";
 
 const PANEL_W = 372;
@@ -80,6 +84,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
   }, []);
   const [palette, setPalette] = useState(false);
   const [spin, setSpin] = useState(0);
+  const [source, setSource] = useState<Source>("live");
 
   const syncRef = useRef(sync);
   syncRef.current = sync;
@@ -335,6 +340,46 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
     (id === "a" ? a : b).load(url);
   }, []);
 
+  const gitApi = devtools?.git;
+  const git = useGit(gitApi, source === "git");
+  const liveEnv = devtools?.environments.find((e) => e.id !== "local");
+
+  // The page you are on, as the local site has it: the past commit and live are opened at the same place.
+  const here = useCallback(() => {
+    const p = panes.current!.b;
+    try {
+      const u = new URL(p.state.current || p.state.requested);
+      return u.pathname + u.search;
+    } catch {
+      return "/";
+    }
+  }, []);
+
+  const toggleSource = useCallback(() => {
+    if (source === "git") {
+      setSource("live");
+      if (liveEnv) load("a", liveEnv.origin + here());
+    } else {
+      setSource("git");
+    }
+  }, [source, liveEnv, load, here]);
+
+  // The left pane follows the commit you stop on, once the temporary server for it is up.
+  const readyKey = source === "git" && git.ready ? `${git.ready.sha}@${git.ready.origin}` : "";
+  const [loadedKey, setLoadedKey] = useState("");
+  useEffect(() => {
+    if (!readyKey || !git.ready) {
+      setLoadedKey("");
+      return;
+    }
+    load("a", git.ready.origin + here());
+    setLoadedKey(readyKey);
+  }, [readyKey]);
+
+  // Until the commit you chose is on screen in the left pane, say so over it.
+  const arrived = !!git.ready && loadedKey === readyKey && a.state.requested.startsWith(git.ready.origin) && (a.state.status === "ready" || a.state.status === "error");
+  const travelling = source === "git" && !!git.commit && !arrived;
+
   const reload = useCallback(
     (id: PaneId) => {
       const P = panes.current!;
@@ -414,12 +459,14 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
       else if (e.key === "k") step(-1);
       else if (e.key === "h") setHighlights((h) => !h);
       else if (e.key === "p") setPanelOpen((o) => !o);
+      else if (source === "git" && e.key === "[") git.step(1);
+      else if (source === "git" && e.key === "]") git.step(-1);
       else if (e.key === "Escape") clearSelection();
       else if (e.key >= "1" && e.key <= "4") setView(VIEW_MODES[+e.key - 1].id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step, devtools, exit]);
+  }, [step, devtools, exit, source, git.step]);
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const list: PaletteItem[] = [];
@@ -433,6 +480,22 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
       { id: "scan", group: "Actions", title: "Scan pages for lazy-loaded content", detail: "Scrolls both pages top to bottom, then back", icon: <ScanLine className={icon} />, run: scan },
       { id: "reload", group: "Actions", title: "Reload both pages", icon: <RefreshCw className={icon} />, run: () => (reload("a"), reload("b")) },
     );
+    if (gitApi) {
+      list.push({
+        id: "source",
+        group: "Actions",
+        title: source === "git" ? "Compare with live instead of Git history" : "Compare with Git history",
+        detail: source === "git" ? undefined : "Serves a past commit from a temporary dev server",
+        icon: <GitBranch className={icon} />,
+        run: toggleSource,
+      });
+      if (source === "git") {
+        list.push(
+          { id: "git-older", group: "Actions", title: "Older commit", shortcut: "[", icon: <GitBranch className={icon} />, run: () => git.step(1) },
+          { id: "git-newer", group: "Actions", title: "Newer commit", shortcut: "]", icon: <GitBranch className={icon} />, run: () => git.step(-1) },
+        );
+      }
+    }
     VIEW_MODES.forEach((m, i) =>
       list.push({ id: `view-${m.id}`, group: "View", title: m.label, detail: m.hint, shortcut: String(i + 1), icon: <Layers className={icon} />, run: () => setView(m.id) }),
     );
@@ -457,7 +520,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
       }
     }
     return list;
-  }, [diff, highlights, panelOpen, step, swap, scan, reload, focusPair, devtools]);
+  }, [diff, highlights, panelOpen, step, swap, scan, reload, focusPair, devtools, gitApi, source, toggleSource, git.step]);
 
   const bothReady = a.state.status === "ready" && b.state.status === "ready";
   const stats = diff?.stats;
@@ -494,7 +557,14 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
               state={a.state}
               onSubmit={(u) => load("a", u)}
               readOnly={!!devtools}
-              leading={devtools && <EnvTag env={envOf(devtools.environments, a.state.current || a.state.requested)} />}
+              leading={
+                devtools &&
+                (gitApi ? (
+                  <SourceTag source={source} onToggle={toggleSource} live={liveEnv} />
+                ) : (
+                  <EnvTag env={envOf(devtools.environments, a.state.current || a.state.requested)} />
+                ))
+              }
             />
             {!devtools && (
               <Tip label="Swap A and B">
@@ -668,6 +738,21 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
           </div>
         </motion.div>
 
+        <AnimatePresence initial={false}>
+          {source === "git" && gitApi && (
+            <motion.div
+              key="git"
+              initial={{ height: 0, opacity: 0, overflow: "hidden" }}
+              animate={{ height: 44, opacity: 1, transitionEnd: { overflow: "visible" } }}
+              exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+              transition={{ duration: 0.45, ease: EASE }}
+              className="relative z-[19] shrink-0 border-b border-white/[0.05] bg-zinc-950/70"
+            >
+              <GitBar git={git} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="relative z-10 flex min-h-0 flex-1">
           <main className="relative min-w-0 flex-1">
             <Stage
@@ -681,6 +766,7 @@ export function Workspace({ urlA, urlB, devtools }: { urlA: string; urlB: string
               selected={selected}
               showRibbons={highlights}
               onReload={reload}
+              travel={travelling ? <TimeTravel key="travel" git={git} /> : undefined}
             />
           </main>
           <AnimatePresence initial={false}>

@@ -5,6 +5,8 @@ import { uiFile } from "./server/paths";
 import { isLoopbackHost } from "./server/hosts";
 import { forgetParent, rememberParent } from "./server/parents";
 import { handleProxy } from "./server/proxy";
+import { history, repoInfo } from "./server/git/repo";
+import { currentRevision, ensureRevision, isStartFailure, revisionOrigin, stopRevision } from "./server/git/revision";
 import { shellHtml, type ShellConfig } from "./server/shell";
 
 export interface DiffConfig {
@@ -71,8 +73,8 @@ async function session(request: Request, cfg: Resolved): Promise<Response> {
   } catch {
     return json({ error: "Invalid URL" }, 400);
   }
-  // The proxy only ever fetches what you configured. Nothing typed into the page can point it anywhere else.
-  if (!cfg.environments.some((e) => e.origin === url.origin)) {
+  // The proxy only ever fetches what you configured, plus the past version this dev server is itself serving. Nothing typed into the page can point it anywhere else.
+  if (!cfg.environments.some((e) => e.origin === url.origin) && url.origin !== revisionOrigin()) {
     return json({ error: `${url.origin} isn’t one of the sites in your diff config.` }, 400);
   }
   const token = String(payload.token ?? "").slice(0, 64);
@@ -81,6 +83,38 @@ async function session(request: Request, cfg: Resolved): Promise<Response> {
   const created = createSession(url.origin, payload.pane === "b" ? "b" : "a", token);
   rememberParent(created.label, request.headers.get("origin") ?? new URL(request.url).origin);
   return json({ label: created.label, path: url.pathname + url.search + url.hash });
+}
+
+async function git(request: Request, rest: string[]): Promise<Response> {
+  if (!sameSiteCaller(request)) return json({ error: "Not allowed" }, 403);
+  const info = await repoInfo();
+  if (!info) return json({ error: "This project isn’t in a Git repository." }, 404);
+
+  if (rest.length === 0 && request.method === "GET") return json(await history(info));
+  if (rest.length === 1 && rest[0] === "revision") {
+    if (request.method === "GET") return json(currentRevision());
+    if (request.method === "DELETE") {
+      // Stopping takes a moment (the server has to exit); the caller is usually a closing page that won't wait.
+      void stopRevision();
+      return new Response(null, { status: 204, headers: NO_STORE });
+    }
+    if (request.method === "POST") {
+      let sha: unknown;
+      try {
+        ({ sha } = (await request.json()) as { sha?: unknown });
+      } catch {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+      try {
+        return json(await ensureRevision(info, String(sha)));
+      } catch (err) {
+        if (isStartFailure(err)) return json({ error: err.message }, 400);
+        throw err;
+      }
+    }
+    return json({ error: "Method not allowed" }, 405);
+  }
+  return notFound();
 }
 
 /** Only a path on this site: `/x`, never `//other.host` or a full address. */
@@ -105,9 +139,16 @@ export function diffRoute(config: DiffConfig) {
 
     if (head === "assets") return asset(rest[0]);
     if (head === "session") return session(request, cfg);
+    if (head === "git") return git(request, rest);
     if (head === "ui" && request.method === "GET") {
       const search = new URL(request.url).searchParams;
-      const shell: ShellConfig = { prefix: PREFIX, environments: cfg.environments, path: safePath(search.get("path")), handoff: search.get("handoff") === "1" };
+      const shell: ShellConfig = {
+        prefix: PREFIX,
+        environments: cfg.environments,
+        path: safePath(search.get("path")),
+        handoff: search.get("handoff") === "1",
+        git: (await repoInfo()) !== null,
+      };
       return new Response(shellHtml(shell), { headers: { ...NO_STORE, "content-type": "text/html; charset=utf-8" } });
     }
     return notFound();

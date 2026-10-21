@@ -7,6 +7,8 @@ export interface ShellConfig {
   path: string;
   /** Opened by the button: your page is shrinking into the viewer, so the viewer stays see-through to let it show. */
   handoff: boolean;
+  /** The project is in a Git repository: the left pane can switch from live to a past commit. */
+  git: boolean;
 }
 
 export function shellHtml(config: ShellConfig): string {

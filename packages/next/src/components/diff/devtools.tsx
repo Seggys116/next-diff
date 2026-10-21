@@ -1,9 +1,12 @@
 "use client";
 
-import { X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowLeftRight, X } from "lucide-react";
 import { createContext, useContext } from "react";
+import type { GitHistory, RevisionStatus } from "@/lib/git/types";
 import { cn } from "@/lib/utils";
 import type { PaneId } from "./backend";
+import { GitLogo } from "./GitLogo";
 import { Tip } from "./ui";
 
 export interface PaneRect {
@@ -40,8 +43,20 @@ export interface Environment {
   hint?: string;
 }
 
+/** How the viewer reaches the project's Git history and the temporary server that shows one commit of it. */
+export interface GitApi {
+  history(): Promise<GitHistory>;
+  /** Begin serving a commit, or keep serving it. Returns at once; `poll` follows the progress. */
+  start(sha: string): Promise<RevisionStatus>;
+  poll(): Promise<RevisionStatus | null>;
+  /** Shut the temporary server down and delete its files. */
+  stop(): void;
+}
+
 export interface DevtoolsOptions {
   environments: Environment[];
+  /** Present when the project is in a Git repository: the left pane can show a past commit instead of live. */
+  git?: GitApi;
   /** The size of the browser window the viewer was opened from. Offered, and used first, as a device. */
   window?: { w: number; h: number };
   onClose: (path: string) => void;
@@ -67,6 +82,48 @@ export function EnvTag({ env }: { env: Environment | undefined }) {
       <span className={cn("size-1.5 rounded-full", DOT[env?.id ?? ""] ?? "bg-zinc-400")} />
       {env?.label ?? "Page"}
     </span>
+  );
+}
+
+export type Source = "live" | "git";
+
+/** The left pane's tag, as a switch: live site, or the project's Git history. */
+export function SourceTag({ source, onToggle, live }: { source: Source; onToggle: () => void; live: Environment | undefined }) {
+  return (
+    <Tip label={source === "live" ? "Compare against Git history instead" : `Back to ${live?.hint?.split(" · ")[0]?.trim().toLowerCase() || "the live site"}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={source === "live" ? "Switch the left side to Git history" : "Switch the left side back to the live site"}
+        className="group relative inline-flex h-6 w-[74px] shrink-0 items-center justify-between rounded-md bg-white/[0.07] pl-2 pr-1.5 text-[11px] font-semibold text-zinc-100 outline-none transition-colors hover:bg-white/[0.13] focus-visible:ring-2 focus-visible:ring-white/30"
+      >
+        <span className="relative h-full min-w-0 flex-1">
+          <AnimatePresence initial={false} mode="popLayout">
+            <motion.span
+              key={source}
+              initial={{ opacity: 0, y: 8, filter: "blur(3px)" }}
+              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: -8, filter: "blur(3px)" }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute inset-0 flex items-center gap-1.5"
+            >
+              {source === "live" ? (
+                <>
+                  <span className={cn("size-1.5 rounded-full", DOT.live)} />
+                  {live?.label ?? "Live"}
+                </>
+              ) : (
+                <>
+                  <GitLogo />
+                  Git
+                </>
+              )}
+            </motion.span>
+          </AnimatePresence>
+        </span>
+        <ArrowLeftRight className="size-3 shrink-0 text-zinc-500 transition-colors group-hover:text-zinc-200" />
+      </button>
+    </Tip>
   );
 }
 

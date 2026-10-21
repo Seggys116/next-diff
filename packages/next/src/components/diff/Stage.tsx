@@ -52,6 +52,8 @@ export interface StageProps {
   selected: Pair | null;
   showRibbons: boolean;
   onReload: (pane: PaneId) => void;
+  /** Covers the left pane while it is travelling to another point in history. */
+  travel?: React.ReactNode;
   onHeaderClick?: (pane: PaneId) => void;
 }
 
@@ -315,6 +317,7 @@ function StageInner(
         pointerEvents={overlay && interact !== "a" ? "none" : "auto"}
         onReload={reloadA}
         overlay={overlay}
+        travel={props.travel}
       />
       <PaneFrame
         id="b"
@@ -429,6 +432,7 @@ const PaneFrame = memo(function PaneFrame({
   pointerEvents,
   onReload,
   overlay,
+  travel,
   clipPath,
   opacity,
   blend,
@@ -442,6 +446,7 @@ const PaneFrame = memo(function PaneFrame({
   pointerEvents: "auto" | "none";
   onReload: () => void;
   overlay: boolean;
+  travel?: React.ReactNode;
   clipPath?: MotionValue<string>;
   opacity?: MotionValue<number>;
   blend?: boolean;
@@ -610,6 +615,7 @@ const PaneFrame = memo(function PaneFrame({
             <AnimatePresence>
               {errored && <ErrorCard key="er" pane={pane} onRetry={onReload} />}
             </AnimatePresence>
+            <AnimatePresence>{travel}</AnimatePresence>
             {pane.state.warm !== null && (
               <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 bg-white/10">
                 <div

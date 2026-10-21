@@ -4,13 +4,14 @@ import { createRoot } from "react-dom/client";
 import { PaneBackendContext } from "@/components/diff/backend";
 import { HandoffContext, type DevtoolsOptions, type Environment, type Handoff, type PaneRect } from "@/components/diff/devtools";
 import { Workspace } from "@/components/diff/Workspace";
-import { createBackend } from "./backend";
+import { createBackend, createGitApi } from "./backend";
 
 interface Boot {
   prefix: string;
   environments: Environment[];
   path: string;
   handoff: boolean;
+  git: boolean;
 }
 
 declare global {
@@ -89,7 +90,8 @@ function App({ boot }: { boot: Boot }) {
     () => [...boot.environments, { id: "local", label: "Local", origin: location.origin, hint: `Your dev server · ${location.host}` }],
     [boot.environments],
   );
-  const devtools = useMemo<DevtoolsOptions>(() => ({ environments, onClose: close, window: opened.window }), [environments, opened.window]);
+  const git = useMemo(() => (boot.git ? createGitApi(boot.prefix) : undefined), [boot.git, boot.prefix]);
+  const devtools = useMemo<DevtoolsOptions>(() => ({ environments, git, onClose: close, window: opened.window }), [environments, git, opened.window]);
 
   const remote = environments.find((e) => e.id !== "local");
   if (!remote) {

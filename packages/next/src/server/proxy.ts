@@ -118,8 +118,8 @@ async function serve(
 
   let up: UpstreamResponse;
   try {
-    // Assets from the live site are remembered (see ./cache.ts); documents never are.
-    const key = method === "GET" && !isDoc && !request.headers.has("range") ? cacheKey(session.origin, target.pathname + target.search) : null;
+    // Assets from the live site are remembered (see ./cache.ts); documents never are. A local server changes under you, and a past commit reuses ports.
+    const key = method === "GET" && !isDoc && !request.headers.has("range") && !isLocalHost(new URL(session.origin).hostname) ? cacheKey(session.origin, target.pathname + target.search) : null;
     const hit = key ? cacheGet(key) : undefined;
     if (hit) {
       up = fromCache(hit, target.toString());
@@ -129,6 +129,8 @@ async function serve(
         headers: requestHeaders(request, session, !!body),
         body,
         followRedirects: true,
+        // A local server compiles each page the first time it is asked for.
+        timeoutMs: isLocalHost(new URL(session.origin).hostname) ? 120_000 : undefined,
         allowPrivate: isLocalHost(new URL(session.origin).hostname),
       });
       if (key && cacheable(up, target)) {

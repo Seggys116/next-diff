@@ -28,6 +28,8 @@ function devPort(live?: string): Promise<number> {
 /** In `next dev`, serve the viewer from this package. `next build` gets the config back unchanged. */
 export function withDiff(nextConfig: NextConfig = {}, options: DiffOptions = {}): NextConfig {
   if (process.env.NODE_ENV === "production") return nextConfig;
+  // A past commit started by the viewer is only ever shown inside it: no button, no viewer of its own.
+  if (process.env.NEXT_DIFF_REVISION) return nextConfig;
 
   const port = devPort(options.live);
   return {
